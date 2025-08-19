@@ -8,12 +8,14 @@ from typing import Optional
 import geopandas as gpd
 import httpx
 from rich.console import Console
+from rich.traceback import install as rich_traceback_install
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .models import BBox, TORONTO_BBOX
 
 logger = logging.getLogger(__name__)
 console = Console()
+rich_traceback_install(show_locals=False, width=120)
 
 
 class DataAcquisition:
@@ -460,7 +462,11 @@ class DataAcquisition:
             try:
                 drive = load_drive_network(pbf_path, bbox_prefilter)
             except Exception as first_err:
-                console.print(f"⚠️  Failed to read PBF ({first_err}). Forcing re-download and retrying once...")
+                import traceback
+                tb_str = traceback.format_exc()
+                console.print("⚠️  Failed to read PBF. Full traceback:")
+                console.print(tb_str)
+                console.print(f"⚠️  Failed to read PBF ({repr(first_err)}). Forcing re-download and retrying once...")
                 # Remove potentially truncated/corrupted file
                 try:
                     Path(pbf_path).unlink(missing_ok=True)  # type: ignore[arg-type]
@@ -469,7 +475,13 @@ class DataAcquisition:
                 # Force fresh download
                 pbf_path = get_data("Ontario", directory=str(self.raw_dir), update=True)
                 console.print(f"📦 Re-downloaded PBF path: {pbf_path}")
-                drive = load_drive_network(pbf_path, bbox_prefilter)
+                try:
+                    drive = load_drive_network(pbf_path, bbox_prefilter)
+                except Exception as second_err:
+                    tb2_str = traceback.format_exc()
+                    console.print("❌ Retry also failed. Full traceback:")
+                    console.print(tb2_str)
+                    raise
 
             console.print(f"🛣️ Extracted {len(drive)} road geometries before clipping")
 
