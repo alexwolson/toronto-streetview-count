@@ -78,7 +78,6 @@ class DataAcquisition:
                 console.print("⚠️  Could not find city boundary, creating from bbox...")
                 from .models import TORONTO_BBOX
                 from shapely.geometry import Polygon
-                import geopandas as gpd
                 
                 # Create a simple rectangular boundary
                 coords = [
@@ -133,15 +132,60 @@ class DataAcquisition:
                     if resource_url:
                         console.print(f"Downloading from: {resource_url}")
                         
-                        async with httpx.AsyncClient(follow_redirects=True) as client:
-                            response = await client.get(resource_url)
-                            response.raise_for_status()
+                        # If this is a shapefile zip, download as binary and convert to GeoJSON
+                        if resource_url.lower().endswith('.zip') or (format_type and ('shp' in format_type or 'shapefile' in format_type)):
+                            zip_path = self.raw_dir / "toronto_boundary.zip"
+                            extract_dir = self.raw_dir / "toronto_boundary_extract"
+                            extract_dir.mkdir(parents=True, exist_ok=True)
                             
-                            with open(output_path, 'w') as f:
-                                f.write(response.text)
-                        
-                        console.print(f"✓ Downloaded Toronto boundary to {output_path}")
-                        return output_path
+                            async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+                                resp = await client.get(resource_url)
+                                resp.raise_for_status()
+                                zip_path.write_bytes(resp.content)
+                            
+                            # Extract and load shapefile
+                            import zipfile
+                            with zipfile.ZipFile(zip_path, 'r') as zf:
+                                zf.extractall(extract_dir)
+                            
+                            # Find a .shp file
+                            shp_files = list(extract_dir.rglob('*.shp'))
+                            if not shp_files:
+                                raise Exception("No .shp file found in the downloaded archive")
+                            
+                            shp_path = shp_files[0]
+                            import geopandas as gpd
+                            gdf_boundary = gpd.read_file(shp_path)
+                            # Ensure WGS84
+                            if gdf_boundary.crs is not None:
+                                gdf_boundary = gdf_boundary.to_crs(epsg=4326)
+                            
+                            gdf_boundary.to_file(output_path, driver='GeoJSON')
+                            console.print(f"✓ Downloaded and converted boundary to {output_path}")
+                            
+                            # Cleanup
+                            try:
+                                zip_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+                            except Exception:
+                                pass
+                            try:
+                                import shutil
+                                shutil.rmtree(extract_dir, ignore_errors=True)
+                            except Exception:
+                                pass
+                            
+                            return output_path
+                        else:
+                            # Assume text-based (GeoJSON/JSON)
+                            async with httpx.AsyncClient(follow_redirects=True) as client:
+                                response = await client.get(resource_url)
+                                response.raise_for_status()
+                                
+                                with open(output_path, 'w') as f:
+                                    f.write(response.text)
+                            
+                            console.print(f"✓ Downloaded Toronto boundary to {output_path}")
+                            return output_path
                 
                 # Fallback to get_datastore_resources method
                 console.print("Trying get_datastore_resources method...")
@@ -183,16 +227,50 @@ class DataAcquisition:
                     
                     if resource_url is not None:
                         console.print(f"Downloading from: {resource_url}")
-                        
-                        async with httpx.AsyncClient(follow_redirects=True) as client:
-                            response = await client.get(resource_url)
-                            response.raise_for_status()
+                        # Detect shapefile zip and convert
+                        fmt_hint = (format_type if 'format_type' in locals() else None)
+                        if resource_url.lower().endswith('.zip') or (fmt_hint and ('shp' in fmt_hint or 'shapefile' in fmt_hint)):
+                            zip_path = self.raw_dir / "toronto_boundary.zip"
+                            extract_dir = self.raw_dir / "toronto_boundary_extract"
+                            extract_dir.mkdir(parents=True, exist_ok=True)
                             
-                            with open(output_path, 'w') as f:
-                                f.write(response.text)
-                        
-                        console.print(f"✓ Downloaded Toronto boundary to {output_path}")
-                        return output_path
+                            async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+                                resp = await client.get(resource_url)
+                                resp.raise_for_status()
+                                zip_path.write_bytes(resp.content)
+                            
+                            import zipfile
+                            with zipfile.ZipFile(zip_path, 'r') as zf:
+                                zf.extractall(extract_dir)
+                            
+                            shp_files = list(extract_dir.rglob('*.shp'))
+                            if not shp_files:
+                                raise Exception("No .shp file found in the downloaded archive")
+                            shp_path = shp_files[0]
+                            import geopandas as gpd
+                            gdf_boundary = gpd.read_file(shp_path)
+                            if gdf_boundary.crs is not None:
+                                gdf_boundary = gdf_boundary.to_crs(epsg=4326)
+                            gdf_boundary.to_file(output_path, driver='GeoJSON')
+                            console.print(f"✓ Downloaded and converted boundary to {output_path}")
+                            try:
+                                zip_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+                            except Exception:
+                                pass
+                            try:
+                                import shutil
+                                shutil.rmtree(extract_dir, ignore_errors=True)
+                            except Exception:
+                                pass
+                            return output_path
+                        else:
+                            async with httpx.AsyncClient(follow_redirects=True) as client:
+                                response = await client.get(resource_url)
+                                response.raise_for_status()
+                                with open(output_path, 'w') as f:
+                                    f.write(response.text)
+                            console.print(f"✓ Downloaded Toronto boundary to {output_path}")
+                            return output_path
                     else:
                         raise Exception("No usable resources found")
                 else:
@@ -209,7 +287,6 @@ class DataAcquisition:
             console.print("Falling back to bbox boundary...")
             from .models import TORONTO_BBOX
             from shapely.geometry import Polygon
-            import geopandas as gpd
             
             coords = [
                 (TORONTO_BBOX.min_lon, TORONTO_BBOX.min_lat),
