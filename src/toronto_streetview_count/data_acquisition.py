@@ -487,8 +487,10 @@ class DataAcquisition:
 
             console.print("✂️  Clipping OSM roads to boundary...")
             drive = drive.to_crs(boundary_gdf.crs)
-            # Buffer(0) to clean minor topology issues before overlay
-            clipped = gpd.overlay(drive, boundary_gdf.buffer(0), how="intersection")
+            # Use geopandas.clip with a cleaned mask to avoid overlay GeoSeries issues
+            boundary_mask = boundary_gdf.copy()
+            boundary_mask["geometry"] = boundary_mask.geometry.buffer(0)
+            clipped = gpd.clip(drive, boundary_mask)
             console.print(f"✅ {len(clipped)} road segments after clipping")
 
             # Keep relevant columns
