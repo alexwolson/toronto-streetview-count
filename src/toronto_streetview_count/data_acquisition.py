@@ -67,7 +67,7 @@ class DataAcquisition:
                                 console.print(f"⚠️  Error processing row: {row_error}")
                                 continue
                         
-                        if city_boundary:
+                        if city_boundary is not None:
                             break
                 except Exception as search_error:
                     console.print(f"⚠️  Error searching for '{search_term}': {search_error}")
