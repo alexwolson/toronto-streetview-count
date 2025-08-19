@@ -446,19 +446,19 @@ class DataAcquisition:
                 boundary_gdf = boundary_gdf.to_crs(epsg=4326)
             console.print(f"📐 Boundary CRS: {boundary_gdf.crs}")
             minx, miny, maxx, maxy = boundary_gdf.total_bounds
-            bbox_tuple = (minx, miny, maxx, maxy)
-            console.print(f"🧱 Using bbox prefilter for pyrosm: {bbox_tuple}")
+            bbox_prefilter = [float(minx), float(miny), float(maxx), float(maxy)]
+            console.print(f"🧱 Using bbox prefilter for pyrosm: {bbox_prefilter}")
 
-            def load_drive_network(pbf_file: str, bbox_prefilter):
+            def load_drive_network(pbf_file: str, bbox_pref):
                 console.print("🧭 Loading OSM and extracting driving network (motorways, primaries, residential, etc.)...")
-                osm_local = OSM(pbf_file, bounding_box=bbox_prefilter)
+                osm_local = OSM(pbf_file, bounding_box=bbox_pref)
                 drive_local = osm_local.get_network(network_type="driving")
                 if drive_local is None or drive_local.empty:
                     raise Exception("No driving network extracted from PBF (after bbox prefilter)")
                 return drive_local
 
             try:
-                drive = load_drive_network(pbf_path, bbox_tuple)
+                drive = load_drive_network(pbf_path, bbox_prefilter)
             except Exception as first_err:
                 console.print(f"⚠️  Failed to read PBF ({first_err}). Forcing re-download and retrying once...")
                 # Remove potentially truncated/corrupted file
@@ -469,7 +469,7 @@ class DataAcquisition:
                 # Force fresh download
                 pbf_path = get_data("Ontario", directory=str(self.raw_dir), update=True)
                 console.print(f"📦 Re-downloaded PBF path: {pbf_path}")
-                drive = load_drive_network(pbf_path, bbox_tuple)
+                drive = load_drive_network(pbf_path, bbox_prefilter)
 
             console.print(f"🛣️ Extracted {len(drive)} road geometries before clipping")
 
