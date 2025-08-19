@@ -47,7 +47,6 @@ PROCESSING_CRS = "EPSG:3161"    # NAD83 / Ontario (for accurate distance calcula
 # File paths
 TORONTO_BOUNDARY_FILE = RAW_DATA_DIR / "toronto_boundary.geojson"
 TORONTO_CENTRELINE_FILE = RAW_DATA_DIR / "toronto_centreline.geojson"
-OSM_ROADS_FILE = RAW_DATA_DIR / "toronto_osm_roads.geojson"
 SAMPLE_POINTS_FILE = DERIVED_DATA_DIR / "sample_points.parquet"
 DATABASE_FILE = DATA_DIR / "streetview.db"
 
@@ -59,7 +58,7 @@ SAMPLING_SUMMARY_FILE = OUTPUT_DIR / "sampling_summary.json"
 
 # Road type mappings
 TCL_ROAD_TYPES = ['ROAD', 'HIGHWAY', 'EXPRESSWAY', 'COLLECTOR', 'LOCAL']
-OSM_EXCLUDED_ROAD_TYPES = ['footway', 'path', 'cycleway', 'pedestrian', 'bridleway', 'steps']
+ 
 
 # Validation parameters
 BOUNDARY_BUFFER_METERS = 50      # meters to buffer boundary when clipping roads

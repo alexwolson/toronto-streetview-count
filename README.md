@@ -83,11 +83,10 @@ toronto-streetview-count count
 
 ### Data Sources
 - **Toronto Open Data Portal**: Official city boundary and Toronto Centreline (TCL) road network
-- **OpenStreetMap**: Supplementary road network data for complete coverage
 - **Google Street View API**: Panorama metadata (coordinates, dates, IDs)
 
 ### Processing Pipeline
-1. **Data Acquisition**: Download boundary, TCL, and OSM data
+1. **Data Acquisition**: Download boundary and TCL data
 2. **Road Processing**: Merge networks, clip to boundary, densify to sample points
 3. **API Crawling**: Query Street View API for each sample point
 4. **Deduplication**: Remove duplicate panoramas using spatial analysis
@@ -169,7 +168,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 **Acknowledgments**
 
 - **City of Toronto Open Data Portal** for official boundary and road network data
-- **OpenStreetMap** contributors for supplementary road data
+ 
 - **Google Maps Platform** for Street View API access
 
 ## 📞 **Support**

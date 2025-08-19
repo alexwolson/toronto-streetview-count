@@ -37,7 +37,7 @@ def cli():
     type=click.Path(file_okay=False, dir_okay=True)
 )
 def download_boundary(data_dir):
-    """Download Toronto boundary, TCL, and OSM datasets."""
+    """Download Toronto boundary and TCL datasets (TCL-only workflow)."""
     console.print(Panel.fit("🌍 Downloading Toronto Data Sources", style="blue"))
     
     async def run_download():

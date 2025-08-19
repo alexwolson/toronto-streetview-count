@@ -19,10 +19,7 @@
 - **City of Toronto Open Data**
   - Boundary polygon: search for "City of Toronto Boundary" on the Open Data Portal ([link](https://open.toronto.ca/)).
   - Road network: "Toronto Centreline (TCL)" dataset ([link](https://open.toronto.ca/)).
-- **OpenStreetMap**
-  - **Primary supplement**: Query OSM for additional roads in expanded Toronto area to ensure comprehensive coverage.
-  - **Coverage**: Includes alleys, service roads, pedestrian paths, and roads just outside city boundaries.
-  - **API**: Use Overpass API or download regional extracts for efficient querying.
+ 
 - **Google Maps Platform**
   - Street View Image Metadata API (part of Street View Static API): returns status and `pano_id` for nearest panorama to a `location` and `radius` ([docs](https://developers.google.com/maps/documentation/streetview/metadata)).
   - Note: The Street View Publish API requires OAuth and focuses on user-contributed 360 photos; it is not suitable for enumerating Google-owned panoramas.
@@ -42,13 +39,13 @@
 1. **Acquire geodata**
    - Download the City of Toronto boundary polygon as GeoJSON or Shapefile.
    - Download Toronto Centreline (TCL) road centerlines as primary source.
-   - **Supplement with OpenStreetMap**: Query OSM for additional roads in expanded Toronto area to ensure comprehensive coverage.
+ 
    - Store under `data/raw/`.
 
 2. **Preprocess**
-   - Load TCL and OSM data with `geopandas`.
+   - Load TCL data with `geopandas`.
    - Reproject to a suitable projected CRS (e.g., EPSG:3857 or EPSG:3161/26917) for accurate distance operations.
-   - **Merge road networks**: Combine TCL (primary) with OSM (supplementary), deduplicating overlapping segments.
+   - **Use TCL network**: Deduplicate and preprocess TCL only.
    - Clip merged roads to the city boundary (buffer a few meters to retain edge segments).
    - Densify each road polyline into points every `d` meters (start with `d = 5–10 m`).
    - Filter points that fall outside the boundary after densification.
@@ -91,7 +88,7 @@
 
 ## CLI design (proposed commands)
 
-- **download-boundary**: Download/verify boundary, TCL, and OSM datasets into `data/raw/`.
+- **download-boundary**: Download/verify boundary and TCL datasets into `data/raw/`.
 - **prepare-points**: Build densified sample points within boundary; write to `data/derived/`.
 - **crawl**: Query metadata for all sample points with concurrency and rate limiting; store in SQLite and Parquet.
 - **count**: Emit the deduplicated count and write `outputs/` artifacts.
