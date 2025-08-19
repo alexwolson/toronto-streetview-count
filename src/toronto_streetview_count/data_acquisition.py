@@ -511,13 +511,9 @@ class DataAcquisition:
             tcl_path = await self.download_toronto_centreline()
             progress.advance(task)
             
-            # Download OSM (optional)
-            osm_path = None
-            try:
-                osm_path = await self.download_osm_roads()
-                console.print("✓ OSM roads downloaded successfully")
-            except Exception as e:
-                console.print(f"⚠️  OSM download failed (continuing without it): {e}")
+            # Download OSM (required)
+            osm_path = await self.download_osm_roads()
+            console.print("✓ OSM roads downloaded successfully")
             progress.advance(task)
         
         console.print("✅ Data acquisition complete!")
@@ -530,39 +526,58 @@ class DataAcquisition:
     
     def validate_data(self) -> bool:
         """Validate that all required data files exist and are readable."""
-        required_files = [
-            self.raw_dir / "toronto_boundary.geojson",
-            self.raw_dir / "toronto_centreline.csv"
-        ]
+        required_files = {
+            'boundary': self.raw_dir / "toronto_boundary.geojson",
+            'tcl_csv': self.raw_dir / "toronto_centreline.csv",
+            'tcl_geojson': self.raw_dir / "toronto_centreline.geojson",
+            'osm': self.raw_dir / "toronto_osm_roads.geojson",
+        }
         
-        # OSM roads are optional
-        optional_files = [
-            self.raw_dir / "toronto_osm_roads.geojson"
-        ]
-        
-        # Validate required files
-        for file_path in required_files:
-            if not file_path.exists():
-                console.print(f"❌ Missing required file: {file_path}")
-                return False
-            
+        # Boundary (GeoJSON required)
+        boundary_path = required_files['boundary']
+        if not boundary_path.exists():
+            console.print(f"❌ Missing required file: {boundary_path}")
+            return False
+        try:
+            gpd.read_file(boundary_path)
+            console.print(f"✓ Validated {boundary_path}")
+        except Exception as e:
+            console.print(f"❌ Invalid file {boundary_path}: {e}")
+            return False
+
+        # TCL (either CSV or GeoJSON must exist and be readable)
+        import pandas as pd
+        tcl_csv = required_files['tcl_csv']
+        tcl_geojson = required_files['tcl_geojson']
+        if tcl_geojson.exists():
             try:
-                gpd.read_file(file_path)
-                console.print(f"✓ Validated {file_path}")
+                gpd.read_file(tcl_geojson)
+                console.print(f"✓ Validated {tcl_geojson}")
             except Exception as e:
-                console.print(f"❌ Invalid file {file_path}: {e}")
+                console.print(f"❌ Invalid file {tcl_geojson}: {e}")
                 return False
-        
-        # Validate optional files if they exist
-        for file_path in optional_files:
-            if file_path.exists():
-                try:
-                    gpd.read_file(file_path)
-                    console.print(f"✓ Validated optional file {file_path}")
-                except Exception as e:
-                    console.print(f"⚠️  Invalid optional file {file_path}: {e}")
-            else:
-                console.print(f"ℹ️  Optional file not present: {file_path}")
+        elif tcl_csv.exists():
+            try:
+                df = pd.read_csv(tcl_csv, nrows=5)
+                console.print(f"✓ Validated {tcl_csv}")
+            except Exception as e:
+                console.print(f"❌ Invalid file {tcl_csv}: {e}")
+                return False
+        else:
+            console.print(f"❌ Missing required TCL file: {tcl_geojson} or {tcl_csv}")
+            return False
+
+        # OSM (GeoJSON required)
+        osm_path = required_files['osm']
+        if not osm_path.exists():
+            console.print(f"❌ Missing required file: {osm_path}")
+            return False
+        try:
+            gpd.read_file(osm_path)
+            console.print(f"✓ Validated {osm_path}")
+        except Exception as e:
+            console.print(f"❌ Invalid file {osm_path}: {e}")
+            return False
         
         return True
 
