@@ -103,120 +103,15 @@ class RoadProcessor:
         console.print(f"✓ Loaded {len(tcl_roads)} TCL road segments")
         return tcl_roads
     
-    def load_osm_roads(self) -> gpd.GeoDataFrame:
-        """Load OpenStreetMap road data."""
-        osm_path = self.raw_dir / "toronto_osm_roads.geojson"
-        
-        if not osm_path.exists():
-            console.print("ℹ️  OSM roads not available, continuing with TCL only")
-            # Return empty GeoDataFrame with same CRS
-            return gpd.GeoDataFrame(geometry=[], crs='EPSG:3161')
-        
-        try:
-            osm = gpd.read_file(osm_path)
-            
-            # Reproject to match boundary
-            osm_proj = osm.to_crs(epsg=3161)
-            
-            # Filter to exclude pedestrian-only paths
-            exclude_types = ['footway', 'path', 'cycleway', 'pedestrian']
-            osm_roads = osm_proj[~osm_proj['highway'].isin(exclude_types)]
-            
-            console.print(f"✓ Loaded {len(osm_roads)} OSM road segments")
-            return osm_roads
-            
-        except Exception as e:
-            console.print(f"⚠️  Error loading OSM roads: {e}")
-            console.print("ℹ️  Continuing with TCL only")
-            # Return empty GeoDataFrame with same CRS
-            return gpd.GeoDataFrame(geometry=[], crs='EPSG:3161')
+    # OSM loading removed for TCL-only workflow
     
-    def merge_road_networks(self, tcl_roads: gpd.GeoDataFrame, osm_roads: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        """Merge TCL and OSM road networks, deduplicating overlapping segments."""
-        console.print("Merging road networks...")
-        
-        # Combine both networks
-        all_roads = pd.concat([tcl_roads, osm_roads], ignore_index=True)
-        
-        # Remove exact duplicates
-        all_roads = all_roads.drop_duplicates(subset=['geometry'])
-        
-        # Remove roads that are very similar using spatial indexing and distance analysis
-        console.print("Removing duplicate road segments using spatial analysis...")
-        
-        # Create spatial index for efficient similarity detection
-        from shapely.geometry import LineString
-        from shapely.ops import unary_union
-        from shapely.prepared import prep
-        
-        # Group by road type for more accurate deduplication
-        road_groups = []
-        
-        # Handle both TCL and OSM data structures
-        if 'highway' in all_roads.columns:
-            # OSM-style data
-            road_type_column = 'highway'
-        elif 'feature_code' in all_roads.columns:
-            # TCL-style data
-            road_type_column = 'feature_code'
-        else:
-            # No road type column, treat all as one group
-            road_groups.append(all_roads)
-            merged_roads = pd.concat(road_groups, ignore_index=True)
-            console.print(f"✓ Merged {len(merged_roads)} unique road segments")
-            return merged_roads
-        
-        for road_type in all_roads[road_type_column].unique():
-            if pd.isna(road_type):
-                continue
-            
-            type_roads = all_roads[all_roads[road_type_column] == road_type].copy()
-            if len(type_roads) <= 1:
-                road_groups.append(type_roads)
-                continue
-            
-            # Convert to list for processing
-            roads_list = type_roads.to_dict('records')
-            unique_roads = []
-            
-            for i, road in enumerate(roads_list):
-                if i == 0:
-                    unique_roads.append(road)
-                    continue
-                
-                current_geom = road['geometry']
-                is_duplicate = False
-                
-                # Check against all previously accepted roads
-                for unique_road in unique_roads:
-                    unique_geom = unique_road['geometry']
-                    
-                    # Calculate Hausdorff distance (maximum distance between geometries)
-                    try:
-                        hausdorff_dist = current_geom.hausdorff_distance(unique_geom)
-                        
-                        # If geometries are very similar (within 5 meters), consider it a duplicate
-                        if hausdorff_dist < 5.0:
-                            # Additional check: if one is contained within the other with high overlap
-                            if current_geom.within(unique_geom.buffer(2)) or unique_geom.within(current_geom.buffer(2)):
-                                is_duplicate = True
-                                break
-                    except Exception:
-                        # If distance calculation fails, assume not duplicate
-                        pass
-                
-                if not is_duplicate:
-                    unique_roads.append(road)
-            
-            # Convert back to GeoDataFrame
-            if unique_roads:
-                unique_gdf = gpd.GeoDataFrame(unique_roads, crs=type_roads.crs)
-                road_groups.append(unique_gdf)
-        
-        merged_roads = pd.concat(road_groups, ignore_index=True)
-        
-        console.print(f"✓ Merged {len(merged_roads)} unique road segments")
-        return merged_roads
+    def merge_road_networks(self, tcl_roads: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """Return TCL roads as the merged network (OSM removed)."""
+        console.print("Using TCL roads only (OSM removed)")
+        # Drop exact duplicates by geometry
+        tcl_unique = tcl_roads.drop_duplicates(subset=['geometry'])
+        console.print(f"✓ {len(tcl_unique)} TCL segments after deduplication")
+        return tcl_unique
     
     def clip_to_boundary(self, roads: gpd.GeoDataFrame, boundary: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """Clip roads to Toronto boundary with a small buffer."""
@@ -330,14 +225,9 @@ class RoadProcessor:
             tcl_roads = self.load_tcl_roads()
             progress.advance(task)
             
-            # Load OSM roads
-            task = progress.add_task("Loading OSM roads...", total=5)
-            osm_roads = self.load_osm_roads()
-            progress.advance(task)
-            
-            # Merge networks
-            task = progress.add_task("Merging road networks...", total=5)
-            merged_roads = self.merge_road_networks(tcl_roads, osm_roads)
+            # Merge networks (TCL only)
+            task = progress.add_task("Preparing TCL roads...", total=5)
+            merged_roads = self.merge_road_networks(tcl_roads)
             progress.advance(task)
             
             # Clip to boundary

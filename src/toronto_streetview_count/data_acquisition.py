@@ -411,103 +411,7 @@ class DataAcquisition:
             console.print(f"❌ Error downloading TCL: {e}")
             raise
     
-    async def download_osm_roads(self, bbox: Optional[BBox] = None) -> Path:
-        """Download OpenStreetMap roads via Geofabrik PBF + pyrosm (no Overpass fallback)."""
-        if bbox is None:
-            bbox = TORONTO_BBOX
-
-        output_path = self.raw_dir / "toronto_osm_roads.geojson"
-
-        if output_path.exists():
-            console.print(f"✓ OpenStreetMap roads already exist at {output_path}")
-            return output_path
-
-        console.print("Downloading OpenStreetMap road data via Geofabrik PBF + pyrosm...")
-
-        # Geofabrik Ontario PBF with pyrosm only
-        from time import perf_counter
-        start_time = perf_counter()
-        try:
-            from pyrosm import get_data, OSM
-            import geopandas as gpd
-
-            console.print("🔽 Fetching Geofabrik Ontario PBF...")
-            pbf_path = get_data("Ontario", directory=str(self.raw_dir))
-            console.print(f"📦 PBF path: {pbf_path}")
-            try:
-                size_mb = Path(pbf_path).stat().st_size / (1024 * 1024)
-                console.print(f"📏 PBF size: {size_mb:.1f} MB")
-            except Exception:
-                pass
-
-            # Load boundary for bbox prefilter and later exact clipping
-            boundary_path = self.raw_dir / "toronto_boundary.geojson"
-            console.print(f"🗺️ Loading boundary from {boundary_path}")
-            boundary_gdf = gpd.read_file(boundary_path)
-            if boundary_gdf.crs is None or boundary_gdf.crs.to_epsg() != 4326:
-                boundary_gdf = boundary_gdf.to_crs(epsg=4326)
-            console.print(f"📐 Boundary CRS: {boundary_gdf.crs}")
-            minx, miny, maxx, maxy = boundary_gdf.total_bounds
-            bbox_prefilter = [float(minx), float(miny), float(maxx), float(maxy)]
-            console.print(f"🧱 Using bbox prefilter for pyrosm: {bbox_prefilter}")
-
-            def load_drive_network(pbf_file: str, bbox_pref):
-                console.print("🧭 Loading OSM and extracting driving network (motorways, primaries, residential, etc.)...")
-                osm_local = OSM(pbf_file, bounding_box=bbox_pref)
-                drive_local = osm_local.get_network(network_type="driving")
-                if drive_local is None or drive_local.empty:
-                    raise Exception("No driving network extracted from PBF (after bbox prefilter)")
-                return drive_local
-
-            try:
-                drive = load_drive_network(pbf_path, bbox_prefilter)
-            except Exception as first_err:
-                import traceback
-                tb_str = traceback.format_exc()
-                console.print("⚠️  Failed to read PBF. Full traceback:")
-                console.print(tb_str)
-                console.print(f"⚠️  Failed to read PBF ({repr(first_err)}). Forcing re-download and retrying once...")
-                # Remove potentially truncated/corrupted file
-                try:
-                    Path(pbf_path).unlink(missing_ok=True)  # type: ignore[arg-type]
-                except Exception:
-                    pass
-                # Force fresh download
-                pbf_path = get_data("Ontario", directory=str(self.raw_dir), update=True)
-                console.print(f"📦 Re-downloaded PBF path: {pbf_path}")
-                try:
-                    drive = load_drive_network(pbf_path, bbox_prefilter)
-                except Exception as second_err:
-                    tb2_str = traceback.format_exc()
-                    console.print("❌ Retry also failed. Full traceback:")
-                    console.print(tb2_str)
-                    raise
-
-            console.print(f"🛣️ Extracted {len(drive)} road geometries before clipping")
-
-            console.print("✂️  Clipping OSM roads to boundary...")
-            drive = drive.to_crs(boundary_gdf.crs)
-            # Use geopandas.clip with a cleaned mask to avoid overlay GeoSeries issues
-            boundary_mask = boundary_gdf.copy()
-            boundary_mask["geometry"] = boundary_mask.geometry.buffer(0)
-            clipped = gpd.clip(drive, boundary_mask)
-            console.print(f"✅ {len(clipped)} road segments after clipping")
-
-            # Keep relevant columns
-            keep_cols = [c for c in clipped.columns if c in ("highway", "name", "geometry", "osm_id")]
-            if "osm_id" not in keep_cols and "id" in clipped.columns:
-                clipped = clipped.rename(columns={"id": "osm_id"})
-                keep_cols = [c for c in clipped.columns if c in ("highway", "name", "geometry", "osm_id")]
-            clipped = clipped[keep_cols]
-            console.print(f"🧾 Columns kept: {keep_cols}")
-
-            clipped.to_file(output_path, driver="GeoJSON")
-            console.print(f"💾 Saved OSM roads to {output_path}")
-            console.print(f"⏱️  OSM processing time: {perf_counter() - start_time:.1f}s")
-            return output_path
-        except Exception as pbf_err:
-            console.print(f"❌ OSM PBF processing failed: {pbf_err}")
-            raise
+    # OSM download removed for TCL-only workflow
     
     async def download_all_data(self) -> dict:
         """Download all required data sources."""
@@ -518,7 +422,7 @@ class DataAcquisition:
             TextColumn("[progress.description]{task.description}"),
             console=console
         ) as progress:
-            task = progress.add_task("Downloading data...", total=3)
+            task = progress.add_task("Downloading data...", total=2)
             
             # Download boundary
             boundary_path = await self.download_toronto_boundary()
@@ -528,17 +432,13 @@ class DataAcquisition:
             tcl_path = await self.download_toronto_centreline()
             progress.advance(task)
             
-            # Download OSM (required)
-            osm_path = await self.download_osm_roads()
-            console.print("✓ OSM roads downloaded successfully")
-            progress.advance(task)
+            # OSM removed for TCL-only workflow
         
         console.print("✅ Data acquisition complete!")
         
         return {
             'boundary': boundary_path,
-            'centreline': tcl_path,
-            'osm_roads': osm_path
+            'centreline': tcl_path
         }
     
     def validate_data(self) -> bool:
@@ -547,7 +447,6 @@ class DataAcquisition:
             'boundary': self.raw_dir / "toronto_boundary.geojson",
             'tcl_csv': self.raw_dir / "toronto_centreline.csv",
             'tcl_geojson': self.raw_dir / "toronto_centreline.geojson",
-            'osm': self.raw_dir / "toronto_osm_roads.geojson",
         }
         
         # Boundary (GeoJSON required)
@@ -584,17 +483,7 @@ class DataAcquisition:
             console.print(f"❌ Missing required TCL file: {tcl_geojson} or {tcl_csv}")
             return False
 
-        # OSM (GeoJSON required)
-        osm_path = required_files['osm']
-        if not osm_path.exists():
-            console.print(f"❌ Missing required file: {osm_path}")
-            return False
-        try:
-            gpd.read_file(osm_path)
-            console.print(f"✓ Validated {osm_path}")
-        except Exception as e:
-            console.print(f"❌ Invalid file {osm_path}: {e}")
-            return False
+        # OSM validation removed for TCL-only workflow
         
         return True
 

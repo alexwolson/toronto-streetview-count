@@ -468,12 +468,7 @@ def status():
     else:
         console.print("❌ Toronto Centreline (TCL)")
     
-    # OSM
-    osm_path = data_dir / "raw" / "toronto_osm_roads.geojson"
-    if osm_path.exists():
-        console.print("✅ OpenStreetMap roads")
-    else:
-        console.print("❌ OpenStreetMap roads")
+    # OSM removed for TCL-only workflow
     
     # Sample points
     sample_path = data_dir / "derived" / "sample_points.parquet"
