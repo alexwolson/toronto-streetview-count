@@ -1,218 +1,160 @@
-# Toronto Street View Panorama Counter
+# 🗺️ Toronto Street View Panorama Counter
 
-A comprehensive tool to count all Google Street View panoramas within the City of Toronto boundary using road network sampling and the Google Street View Image Metadata API.
+Count the total number of Google Street View panoramas available within the City of Toronto boundary, producing a deduplicated set of panorama IDs with coordinates and dates.
 
-## 🎯 Goal
+## 🎯 **Project Overview**
 
-**Count the total number of Google Street View panoramas available by API within the City of Toronto boundary.** The output is a deduplicated set of panorama IDs (with coordinates and dates) and a reproducible process.
+This project systematically samples Toronto's road network to discover all available Street View panoramas via the Google Street View Image Metadata API. It produces:
 
-## 🚀 Features
+- **Complete Coverage**: Samples all roadways in Toronto with configurable density
+- **Deduplicated Results**: Identifies unique panoramas using spatial analysis
+- **Rich Metadata**: Coordinates, dates, and panorama IDs for each location
+- **Reproducible Process**: Automated data acquisition and processing pipeline
 
-- **Boundary-driven**: Uses official City of Toronto boundary polygon
-- **Road-centric sampling**: Densifies Toronto road centerlines and samples points every 5-10m
-- **Hybrid data sources**: Combines Toronto Centreline (TCL) with OpenStreetMap for comprehensive coverage
-- **Metadata queries**: Calls Street View Image Metadata API around each sample point
-- **Deduplication**: Collects unique panorama IDs with coordinates and dates
-- **Persistence**: Stores results in SQLite for resumability and audit
-- **Rate limiting**: Respects API limits while maximizing throughput
-- **Resume capability**: Can continue from where it left off
+## 🚀 **Quick Start**
 
-## 📋 Prerequisites
+### Prerequisites
+- **Python 3.11+**
+- **Google Cloud CLI** installed and authenticated
+- **Google Cloud project** with Maps Platform APIs enabled
 
-- Python 3.11+
-- Google Cloud CLI installed and authenticated
-- Google Cloud project with Maps Platform APIs enabled
-- Internet connection for data downloads
-
-## 🛠️ Installation
-
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd toronto-streetview-count
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   # Using uv (recommended)
-   uv sync
-   
-   # Or using pip
-   pip install -e .
-   ```
-
-3. **Set up Google Cloud authentication:**
-   ```bash
-   # Option 1: Use the automated setup script (recommended)
-   ./setup_google_cloud.sh
-   
-   # Option 2: Manual setup
-   # Install Google Cloud CLI if not already installed
-   # https://cloud.google.com/sdk/docs/install
-   
-   # Authenticate with your Google account
-   gcloud auth application-default login
-   
-   # Optionally set your project ID
-   export GOOGLE_CLOUD_PROJECT="your-project-id"
-   ```
-
-## 🗺️ Data Sources
-
-- **City of Toronto Boundary**: Official city limits from Toronto Open Data Portal
-- **Toronto Centreline (TCL)**: Official road network from Toronto Open Data Portal
-- **OpenStreetMap**: Supplementary road data for comprehensive coverage
-- **Google Street View Image Metadata API**: Free metadata queries for panorama discovery
-
-## 📖 Usage
-
-The tool provides a command-line interface with several commands:
-
-### 1. Download Data Sources
+### 1. Install Dependencies
 ```bash
+# Clone the repository
+git clone https://github.com/alexwolson/toronto-streetview-count.git
+cd toronto-streetview-count
+
+# Install dependencies
+pip install -e .
+```
+
+### 2. Set Up Google Cloud Authentication
+```bash
+# Run the automated setup script (recommended)
+./setup_google_cloud.sh
+
+# This will:
+# - Enable required APIs
+# - Configure IAM permissions
+# - Create and restrict API keys
+# - Set up environment variables
+```
+
+### 3. Quick Test Run
+```bash
+# Test with a small subset first
+toronto-streetview-count subset --spacing 5 --radius 25 --qps 5
+
+# This processes downtown Toronto in minutes
+```
+
+### 4. Full Pipeline
+```bash
+# Download geographic data
 toronto-streetview-count download-boundary
-```
-Downloads Toronto boundary, TCL, and OSM datasets to `data/raw/`.
 
-### 2. Prepare Sample Points
-```bash
+# Generate sample points
 toronto-streetview-count prepare-points --spacing 10
-```
-Processes road networks and generates sample points every 10 meters.
 
-### 3. Crawl Street View Metadata
-```bash
+# Crawl Street View (start small)
 toronto-streetview-count crawl --radius 30 --qps 10
-```
-Queries the Street View API for all sample points with rate limiting.
 
-### 4. Count Results
-```bash
+# Get results
 toronto-streetview-count count
 ```
-Displays final count and exports results to `outputs/`.
 
-### 5. Subset Testing
-```bash
-toronto-streetview-count subset --spacing 5 --radius 25
-```
-Runs the pipeline on a small area for validation.
+## 🔧 **Configuration**
 
-### 6. Check Status
-```bash
-toronto-streetview-count status
-```
-Shows current project status and data availability.
+### Key Parameters
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--spacing` | 10m | Distance between sample points |
+| `--radius` | 30m | Search radius for panoramas |
+| `--qps` | 10 | API requests per second |
+| `--batch-size` | 100 | Points processed per batch |
 
-## 🔧 Configuration Options
+### Expected Results
+- **Sample Points**: ~1M-2M with 10m spacing
+- **Processing Time**: 2-8 hours depending on parameters
+- **Unique Panoramas**: Expected 50K-200K+ in Toronto
+- **Storage**: ~1-5GB for complete dataset
 
-### Sampling Parameters
-- `--spacing`: Distance between sample points (default: 10m)
-- `--radius`: Search radius for metadata API (default: 30m)
+## 🏗️ **Architecture**
 
-### API Settings
-- `--qps`: Queries per second for rate limiting (default: 10)
-- `--batch-size`: Points processed per batch (default: 100)
+### Data Sources
+- **Toronto Open Data Portal**: Official city boundary and Toronto Centreline (TCL) road network
+- **OpenStreetMap**: Supplementary road network data for complete coverage
+- **Google Street View API**: Panorama metadata (coordinates, dates, IDs)
 
-### Data Directories
-- `--data-dir`: Directory for data storage (default: `data`)
-- `--output-dir`: Directory for output files (default: `outputs`)
+### Processing Pipeline
+1. **Data Acquisition**: Download boundary, TCL, and OSM data
+2. **Road Processing**: Merge networks, clip to boundary, densify to sample points
+3. **API Crawling**: Query Street View API for each sample point
+4. **Deduplication**: Remove duplicate panoramas using spatial analysis
+5. **Results**: Export to Parquet with SQLite progress tracking
 
-## 📊 Output Files
+## 🚀 **Server Deployment**
 
-- `toronto_pano_ids.parquet`: Unique panoramas with coordinates and dates
-- `sample_points_with_results.parquet`: All sample points with API responses
-- `final_summary.json`: Processing statistics and final count
-- `sampling_summary.json`: Sample point generation statistics
-
-## 🖥️ Server Deployment
-
-For production deployment on your server:
+For production runs, deploy to a server with the included automation:
 
 ### Quick Deployment
 ```bash
-git clone https://github.com/yourusername/toronto-streetview-count.git
+# Clone and deploy
+git clone https://github.com/alexwolson/toronto-streetview-count.git
 cd toronto-streetview-count
+chmod +x deploy_server.sh
 ./deploy_server.sh
 ```
 
 ### Docker Deployment
 ```bash
-# Set environment variables
-export GOOGLE_MAPS_API_KEY="your_api_key"
-export GOOGLE_CLOUD_PROJECT="your_project_id"
-
-# Start services
+# Using Docker Compose
 docker-compose up -d
+
+# Or build manually
+docker build -t toronto-streetview-counter .
+docker run -d --name toronto-crawler toronto-streetview-counter
 ```
 
-### Manual Installation
-```bash
-pip install -r requirements.txt
-pip install -e .
+See [SERVER_DEPLOYMENT.md](SERVER_DEPLOYMENT.md) for detailed deployment instructions.
+
+## 📊 **Output Format**
+
+Results are saved in multiple formats:
+
+- **SQLite Database**: Progress tracking and checkpointing
+- **Parquet Files**: Efficient storage of final results
+- **Logs**: Detailed processing logs with timestamps
+- **Statistics**: Summary reports and progress metrics
+
+## 🔐 **Authentication & Security**
+
+This project uses Google Cloud's recommended authentication:
+
+- **Application Default Credentials (ADC)**: Secure, token-based authentication
+- **API Key Restrictions**: Limited to Street View services only
+- **IAM Integration**: Fine-grained permission control
+- **No Hardcoded Keys**: Environment-based configuration
+
+## 📁 **Project Structure**
+
+```
+toronto-streetview-count/
+├── src/toronto_streetview_count/     # Main package
+│   ├── cli.py                        # Command-line interface
+│   ├── data_acquisition.py           # Data download and processing
+│   ├── road_processing.py            # Road network processing
+│   ├── streetview_client.py          # Google Street View API client
+│   └── models.py                     # Data models and types
+├── data/                             # Geographic data storage
+├── outputs/                          # Results and exports
+├── setup_google_cloud.sh            # Google Cloud setup automation
+├── deploy_server.sh                  # Server deployment script
+├── Dockerfile                        # Container configuration
+└── docker-compose.yml                # Docker orchestration
 ```
 
-📖 **See [SERVER_DEPLOYMENT.md](SERVER_DEPLOYMENT.md) for detailed server setup instructions.**
-
-## 🏗️ Architecture
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Data Sources  │    │  Road Processing│    │ Street View API │
-│                 │    │                 │    │                 │
-│ • Toronto TCL   │───▶│ • Merge Networks│───▶│ • Metadata      │
-│ • OSM Roads     │    │ • Clip Boundary │    │ • Rate Limiting │
-│ • City Boundary │    │ • Densify Roads │    │ • Persistence   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │                        │
-                                ▼                        ▼
-                       ┌─────────────────┐    ┌─────────────────┐
-                       │ Sample Points   │    │   Results       │
-                       │                 │    │                 │
-                       │ • Road-aligned  │    │ • Unique Count  │
-                       │ • Configurable  │    │ • Coordinates   │
-                       │ • Parquet       │    │ • Statistics    │
-                       └─────────────────┘    └─────────────────┘
-```
-
-## 🔍 How It Works
-
-1. **Data Acquisition**: Downloads official Toronto data and supplements with OSM
-2. **Road Processing**: Merges road networks, clips to city boundary, densifies into sample points
-3. **API Queries**: Samples each point with Street View Metadata API using configurable radius
-4. **Deduplication**: Identifies unique panoramas from overlapping API responses
-5. **Persistence**: Stores all data in SQLite for resumability and analysis
-6. **Export**: Outputs final count and detailed results in multiple formats
-
-## 📈 Performance
-
-- **Sample Points**: ~1M-2M points with 5-10m spacing
-- **API Requests**: Free metadata queries (no billing impact)
-- **Rate Limiting**: Configurable QPS (default: 10 requests/second)
-- **Processing Time**: Depends on sample density and API rate limits
-- **Resume Capability**: Can restart from any point in the pipeline
-
-## 🧪 Testing
-
-Run subset tests on small areas before full city processing:
-
-```bash
-# Test downtown Toronto area
-toronto-streetview-count subset --bbox "-79.4,43.64,-79.38,43.66" --spacing 5
-
-# Test with custom parameters
-toronto-streetview-count subset --spacing 3 --radius 20 --qps 5
-```
-
-## 🚨 Important Notes
-
-- **API Quotas**: Respect Google's daily request limits
-- **Rate Limiting**: Built-in throttling to be a good API citizen
-- **Data Quality**: Toronto has excellent OSM coverage for comprehensive results
-- **Resume Capability**: Long runs can be interrupted and resumed
-- **Free API**: Metadata requests don't count against billing
-
-## 🤝 Contributing
+## 🤝 **Contributing**
 
 1. Fork the repository
 2. Create a feature branch
@@ -220,16 +162,19 @@ toronto-streetview-count subset --spacing 3 --radius 20 --qps 5
 4. Add tests if applicable
 5. Submit a pull request
 
-## 📄 License
+## 📄 **License**
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## 🙏 **Acknowledgments**
 
-- City of Toronto Open Data Portal for official boundary and road data
-- OpenStreetMap contributors for comprehensive road coverage
-- Google Maps Platform for free Street View metadata API
+- **City of Toronto Open Data Portal** for official boundary and road network data
+- **OpenStreetMap** contributors for supplementary road data
+- **Google Maps Platform** for Street View API access
 
-## 📞 Support
+## 📞 **Support**
 
-For questions or issues, please open a GitHub issue or contact the maintainers.
+For issues and questions:
+- Check the [PLAN.md](PLAN.md) for technical details
+- Review [SERVER_DEPLOYMENT.md](SERVER_DEPLOYMENT.md) for deployment help
+- Open an issue on GitHub for bugs or feature requests
