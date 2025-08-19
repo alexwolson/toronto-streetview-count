@@ -432,12 +432,34 @@ class DataAcquisition:
             console.print("🔽 Fetching Geofabrik Ontario PBF...")
             pbf_path = get_data("Ontario", directory=str(self.raw_dir))
             console.print(f"📦 PBF path: {pbf_path}")
+            try:
+                size_mb = Path(pbf_path).stat().st_size / (1024 * 1024)
+                console.print(f"📏 PBF size: {size_mb:.1f} MB")
+            except Exception:
+                pass
 
-            console.print("🧭 Loading OSM and extracting driving network (motorways, primaries, residential, etc.)...")
-            osm = OSM(pbf_path)
-            drive = osm.get_network(network_type="driving")
-            if drive is None or drive.empty:
-                raise Exception("No driving network extracted from PBF")
+            def load_drive_network(pbf_file: str):
+                console.print("🧭 Loading OSM and extracting driving network (motorways, primaries, residential, etc.)...")
+                osm_local = OSM(pbf_file)
+                drive_local = osm_local.get_network(network_type="driving")
+                if drive_local is None or drive_local.empty:
+                    raise Exception("No driving network extracted from PBF")
+                return drive_local
+
+            try:
+                drive = load_drive_network(pbf_path)
+            except Exception as first_err:
+                console.print(f"⚠️  Failed to read PBF ({first_err}). Forcing re-download and retrying once...")
+                # Remove potentially truncated/corrupted file
+                try:
+                    Path(pbf_path).unlink(missing_ok=True)  # type: ignore[arg-type]
+                except Exception:
+                    pass
+                # Force fresh download
+                pbf_path = get_data("Ontario", directory=str(self.raw_dir), update=True)
+                console.print(f"📦 Re-downloaded PBF path: {pbf_path}")
+                drive = load_drive_network(pbf_path)
+
             console.print(f"🛣️ Extracted {len(drive)} road geometries before clipping")
 
             # Load boundary for clipping
