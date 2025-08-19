@@ -44,14 +44,21 @@ class DataAcquisition:
             from toronto_open_data import TorontoOpenData
             tod = TorontoOpenData()
             
-            # Search for municipal boundary datasets
-            boundary_results = tod.search_datasets('municipal boundary')
-            
-            # Look for the main city boundary
+            # Search for municipal boundary datasets - try multiple search terms
             city_boundary = None
-            for _, row in boundary_results.iterrows():
-                if 'municipal' in row['title'].lower() and 'boundary' in row['title'].lower():
-                    city_boundary = row
+            search_terms = ['municipal boundary', 'city boundary', 'regional boundary', 'boundary']
+            
+            for search_term in search_terms:
+                console.print(f"Searching for: {search_term}")
+                boundary_results = tod.search_datasets(search_term)
+                
+                for _, row in boundary_results.iterrows():
+                    title_lower = row['title'].lower()
+                    if 'boundary' in title_lower and ('municipal' in title_lower or 'city' in title_lower or 'regional' in title_lower):
+                        city_boundary = row
+                        console.print(f"Found boundary dataset: {city_boundary['title']}")
+                        break
+                if city_boundary:
                     break
             
             if city_boundary is None:
@@ -80,24 +87,53 @@ class DataAcquisition:
             # Download the boundary dataset
             console.print(f"Found boundary dataset: {city_boundary['title']}")
             dataset_id = city_boundary['id']
+            console.print(f"Dataset ID: {dataset_id}")
             
-            # Get available resources
-            resources = tod.get_datastore_resources(dataset_id)
-            if len(resources) > 0:
-                # Download the first available resource
-                resource_url = resources.iloc[0]['url']
+            # Try to get resources - handle different resource types
+            try:
+                resources = tod.get_datastore_resources(dataset_id)
+                console.print(f"Found {len(resources)} resources")
                 
-                async with httpx.AsyncClient(follow_redirects=True) as client:
-                    response = await client.get(resource_url)
-                    response.raise_for_status()
+                if len(resources) > 0:
+                    # Look for GeoJSON or Shapefile resources first
+                    resource_url = None
+                    for _, resource in resources.iterrows():
+                        format_type = resource.get('format', '').lower()
+                        if 'geojson' in format_type or 'json' in format_type:
+                            resource_url = resource['url']
+                            console.print(f"Using GeoJSON resource: {resource['name']}")
+                            break
+                        elif 'shp' in format_type or 'shapefile' in format_type:
+                            resource_url = resource['url']
+                            console.print(f"Using Shapefile resource: {resource['name']}")
+                            break
                     
-                    with open(output_path, 'w') as f:
-                        f.write(response.text)
-                
-                console.print(f"✓ Downloaded Toronto boundary to {output_path}")
-                return output_path
-            else:
-                raise Exception("No resources found for boundary dataset")
+                    # Fallback to first available resource
+                    if not resource_url and len(resources) > 0:
+                        resource_url = resources.iloc[0]['url']
+                        console.print(f"Using fallback resource: {resources.iloc[0]['name']}")
+                    
+                    if resource_url:
+                        console.print(f"Downloading from: {resource_url}")
+                        
+                        async with httpx.AsyncClient(follow_redirects=True) as client:
+                            response = await client.get(resource_url)
+                            response.raise_for_status()
+                            
+                            with open(output_path, 'w') as f:
+                                f.write(response.text)
+                        
+                        console.print(f"✓ Downloaded Toronto boundary to {output_path}")
+                        return output_path
+                    else:
+                        raise Exception("No usable resources found")
+                else:
+                    raise Exception("No resources found for boundary dataset")
+                    
+            except Exception as resource_error:
+                console.print(f"⚠️  Error getting resources: {resource_error}")
+                console.print("Falling back to bbox boundary...")
+                # Continue to fallback below
                 
         except Exception as e:
             console.print(f"❌ Error downloading boundary: {e}")
