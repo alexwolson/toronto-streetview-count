@@ -411,75 +411,99 @@ class DataAcquisition:
             raise
     
     async def download_osm_roads(self, bbox: Optional[BBox] = None) -> Path:
-        """Download OpenStreetMap road data for Toronto area."""
+        """Download OpenStreetMap roads via Geofabrik PBF + pyrosm; fallback to Overpass."""
         if bbox is None:
             bbox = TORONTO_BBOX
-        
+
         output_path = self.raw_dir / "toronto_osm_roads.geojson"
-        
+
         if output_path.exists():
             console.print(f"✓ OpenStreetMap roads already exist at {output_path}")
             return output_path
-        
+
         console.print("Downloading OpenStreetMap road data...")
-        
-        # Overpass query for roads in Toronto area (more targeted)
-        overpass_query = f"""
-        [out:json][timeout:60];
-        (
-          way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|service|unclassified"]({bbox.min_lat},{bbox.min_lon},{bbox.max_lat},{bbox.max_lon});
-        );
-        out body;
-        >;
-        out skel qt;
-        """
-        
-        # Use overpy to query Overpass API
-        api = overpy.Overpass()
-        result = api.query(overpass_query)
-        
-        # Convert to GeoDataFrame
-        roads_data = []
-        for way in result.ways:
-            # Get coordinates for the way
-            coords = [(float(node.lat), float(node.lon)) for node in way.get_nodes()]
-            
-            if len(coords) >= 2:  # Need at least 2 points for a line
-                roads_data.append({
-                    'osm_id': way.id,
-                    'highway': way.tags.get('highway', 'unknown'),
-                    'name': way.tags.get('name', ''),
-                    'geometry': coords
-                })
-        
-        # Create GeoDataFrame and save
-        if roads_data:
-            # Convert coordinates to proper LineString geometries
-            from shapely.geometry import LineString
-            
-            processed_roads = []
-            for road in roads_data:
-                if len(road['geometry']) >= 2:
-                    # Create LineString from coordinates
-                    line_geometry = LineString(road['geometry'])
-                    
-                    processed_roads.append({
-                        'osm_id': road['osm_id'],
-                        'highway': road['highway'],
-                        'name': road['name'],
-                        'geometry': line_geometry
+
+        # Primary method: Geofabrik Ontario PBF with pyrosm
+        try:
+            from pyrosm import get_data, OSM
+            import geopandas as gpd
+            from shapely.geometry import shape
+
+            # Get Ontario extract
+            pbf_path = get_data("Ontario", directory=str(self.raw_dir))
+
+            # Load OSM and extract driving network
+            osm = OSM(pbf_path)
+            drive = osm.get_network(network_type="driving")
+            if drive is None or drive.empty:
+                raise Exception("No driving network extracted from PBF")
+
+            # Load boundary for clipping
+            boundary_path = self.raw_dir / "toronto_boundary.geojson"
+            boundary_gdf = gpd.read_file(boundary_path).to_crs(epsg=4326)
+
+            # Clip to boundary
+            drive = drive.to_crs(boundary_gdf.crs)
+            clipped = gpd.overlay(drive, boundary_gdf.buffer(0), how="intersection")
+
+            # Keep relevant columns
+            keep_cols = [c for c in clipped.columns if c in ("highway", "name", "geometry", "osm_id")]
+            if "osm_id" not in keep_cols and "id" in clipped.columns:
+                clipped = clipped.rename(columns={"id": "osm_id"})
+                keep_cols = [c for c in clipped.columns if c in ("highway", "name", "geometry", "osm_id")]
+            clipped = clipped[keep_cols]
+
+            clipped.to_file(output_path, driver="GeoJSON")
+            console.print(f"✓ Downloaded OSM roads via PBF to {output_path}")
+            return output_path
+        except Exception as pbf_err:
+            console.print(f"⚠️  PBF method failed, falling back to Overpass: {pbf_err}")
+
+        # Fallback: Overpass API (more limited and can timeout)
+        try:
+            overpass_query = f"""
+            [out:json][timeout:120];
+            (
+              way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|service|unclassified"]({bbox.min_lat},{bbox.min_lon},{bbox.max_lat},{bbox.max_lon});
+            );
+            out body;
+            >;
+            out skel qt;
+            """
+
+            api = overpy.Overpass()
+            result = api.query(overpass_query)
+
+            roads_data = []
+            for way in result.ways:
+                coords = [(float(node.lon), float(node.lat)) for node in way.get_nodes()]
+                if len(coords) >= 2:
+                    roads_data.append({
+                        "osm_id": way.id,
+                        "highway": way.tags.get("highway", "unknown"),
+                        "name": way.tags.get("name", ""),
+                        "geometry": coords,
                     })
-            
-            if processed_roads:
-                gdf = gpd.GeoDataFrame(processed_roads, crs='EPSG:4326')
-                gdf.to_file(output_path, driver='GeoJSON')
-                console.print(f"✓ Downloaded {len(processed_roads)} OSM roads to {output_path}")
-            else:
-                console.print("⚠ No valid road geometries found")
-        else:
-            console.print("⚠ No OSM roads found")
-        
-        return output_path
+
+            if roads_data:
+                from shapely.geometry import LineString
+                processed = []
+                for r in roads_data:
+                    if len(r["geometry"]) >= 2:
+                        processed.append({
+                            "osm_id": r["osm_id"],
+                            "highway": r["highway"],
+                            "name": r["name"],
+                            "geometry": LineString(r["geometry"]),
+                        })
+                if processed:
+                    gdf = gpd.GeoDataFrame(processed, crs="EPSG:4326")
+                    gdf.to_file(output_path, driver="GeoJSON")
+                    console.print(f"✓ Downloaded {len(processed)} OSM roads to {output_path}")
+            return output_path
+        except Exception as over_err:
+            console.print(f"⚠ No OSM roads found (Overpass failed): {over_err}")
+            return output_path
     
     async def download_all_data(self) -> dict:
         """Download all required data sources."""

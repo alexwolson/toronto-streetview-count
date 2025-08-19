@@ -16,13 +16,14 @@ dependencies = [
     "shapely>=2.0.0",
     "pyproj>=3.6.0",
     "pyogrio>=0.6.0",
-            "aiosqlite>=0.19.0",
-        "pydantic>=2.0.0",
-        "overpy>=0.7.0",
-        "pyarrow>=12.0.0",
-        "toronto-open-data>=0.1.0",
+    "aiosqlite>=0.19.0",
+    "pydantic>=2.0.0",
+    "overpy>=0.7.0",
+    "pyarrow>=12.0.0",
+    "toronto-open-data>=0.1.0",
     "google-auth>=2.0.0",
     "google-auth-oauthlib>=1.0.0",
+    "pyrosm>=0.6.2",
 ]
 
 [project.optional-dependencies]
