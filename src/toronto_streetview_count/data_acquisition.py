@@ -50,16 +50,28 @@ class DataAcquisition:
             
             for search_term in search_terms:
                 console.print(f"Searching for: {search_term}")
-                boundary_results = tod.search_datasets(search_term)
-                
-                for _, row in boundary_results.iterrows():
-                    title_lower = row['title'].lower()
-                    if 'boundary' in title_lower and ('municipal' in title_lower or 'city' in title_lower or 'regional' in title_lower):
-                        city_boundary = row
-                        console.print(f"Found boundary dataset: {city_boundary['title']}")
-                        break
-                if city_boundary:
-                    break
+                try:
+                    boundary_results = tod.search_datasets(search_term)
+                    console.print(f"Search results type: {type(boundary_results)}")
+                    console.print(f"Search results: {boundary_results}")
+                    
+                    if boundary_results is not None and not boundary_results.empty:
+                        for _, row in boundary_results.iterrows():
+                            try:
+                                title_lower = str(row.get('title', '')).lower()
+                                if 'boundary' in title_lower and ('municipal' in title_lower or 'city' in title_lower or 'regional' in title_lower):
+                                    city_boundary = row
+                                    console.print(f"Found boundary dataset: {city_boundary['title']}")
+                                    break
+                            except Exception as row_error:
+                                console.print(f"⚠️  Error processing row: {row_error}")
+                                continue
+                        
+                        if city_boundary:
+                            break
+                except Exception as search_error:
+                    console.print(f"⚠️  Error searching for '{search_term}': {search_error}")
+                    continue
             
             if city_boundary is None:
                 # Fallback: create a simple boundary from our bbox
@@ -86,34 +98,90 @@ class DataAcquisition:
             
             # Download the boundary dataset
             console.print(f"Found boundary dataset: {city_boundary['title']}")
-            dataset_id = city_boundary['id']
-            console.print(f"Dataset ID: {dataset_id}")
+            console.print(f"Dataset object: {city_boundary}")
+            console.print(f"Dataset columns: {list(city_boundary.index)}")
+            
+            try:
+                dataset_id = city_boundary['id']
+                console.print(f"Dataset ID: {dataset_id}")
+            except Exception as id_error:
+                console.print(f"⚠️  Error getting dataset ID: {id_error}")
+                console.print("Falling back to bbox boundary...")
+                # Continue to fallback below
+                raise Exception(f"Could not get dataset ID: {id_error}")
             
             # Try to get resources - handle different resource types
             try:
+                console.print(f"Getting resources for dataset ID: {dataset_id}")
+                
+                # Try to get resources from the dataset object first
+                if 'resources' in city_boundary and city_boundary['resources']:
+                    console.print("Found resources in dataset object")
+                    resources_data = city_boundary['resources']
+                    console.print(f"Resources data: {resources_data}")
+                    
+                    # Look for a usable resource URL
+                    resource_url = None
+                    for resource in resources_data:
+                        if isinstance(resource, dict) and 'url' in resource:
+                            format_type = str(resource.get('format', '')).lower()
+                            if 'geojson' in format_type or 'json' in format_type or 'shp' in format_type:
+                                resource_url = resource['url']
+                                console.print(f"Using resource: {resource.get('name', 'Unknown')} ({format_type})")
+                                break
+                    
+                    if resource_url:
+                        console.print(f"Downloading from: {resource_url}")
+                        
+                        async with httpx.AsyncClient(follow_redirects=True) as client:
+                            response = await client.get(resource_url)
+                            response.raise_for_status()
+                            
+                            with open(output_path, 'w') as f:
+                                f.write(response.text)
+                        
+                        console.print(f"✓ Downloaded Toronto boundary to {output_path}")
+                        return output_path
+                
+                # Fallback to get_datastore_resources method
+                console.print("Trying get_datastore_resources method...")
                 resources = tod.get_datastore_resources(dataset_id)
+                console.print(f"Resources type: {type(resources)}")
+                console.print(f"Resources: {resources}")
+                
+                if resources is None or resources.empty:
+                    console.print("No resources found via get_datastore_resources")
+                    raise Exception("No resources found for boundary dataset")
+                
                 console.print(f"Found {len(resources)} resources")
+                console.print(f"Resources columns: {list(resources.columns)}")
+                if len(resources) > 0:
+                    console.print(f"First resource: {resources.iloc[0].to_dict()}")
                 
                 if len(resources) > 0:
                     # Look for GeoJSON or Shapefile resources first
                     resource_url = None
                     for _, resource in resources.iterrows():
-                        format_type = resource.get('format', '').lower()
-                        if 'geojson' in format_type or 'json' in format_type:
-                            resource_url = resource['url']
-                            console.print(f"Using GeoJSON resource: {resource['name']}")
-                            break
-                        elif 'shp' in format_type or 'shapefile' in format_type:
-                            resource_url = resource['url']
-                            console.print(f"Using Shapefile resource: {resource['name']}")
-                            break
+                        try:
+                            format_type = str(resource.get('format', '')).lower()
+                            if 'geojson' in format_type or 'json' in format_type:
+                                resource_url = resource['url']
+                                console.print(f"Using GeoJSON resource: {resource.get('name', 'Unknown')}")
+                                break
+                            elif 'shp' in format_type or 'shapefile' in format_type:
+                                resource_url = resource['url']
+                                console.print(f"Using Shapefile resource: {resource.get('name', 'Unknown')}")
+                                break
+                        except Exception as format_error:
+                            console.print(f"⚠️  Error processing resource format: {format_error}")
+                            continue
                     
                     # Fallback to first available resource
-                    if not resource_url and len(resources) > 0:
+                    if not resource_url and len(resources) > 0 and not resources.empty:
                         resource_url = resources.iloc[0]['url']
                         console.print(f"Using fallback resource: {resources.iloc[0]['name']}")
                     
-                    if resource_url:
+                    if resource_url is not None:
                         console.print(f"Downloading from: {resource_url}")
                         
                         async with httpx.AsyncClient(follow_redirects=True) as client:
