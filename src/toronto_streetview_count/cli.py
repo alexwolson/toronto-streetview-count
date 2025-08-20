@@ -9,6 +9,7 @@ import click
 import pandas as pd
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from .data_acquisition import DataAcquisition
 from .models import TORONTO_BBOX
@@ -124,7 +125,8 @@ def prepare_points(data_dir, spacing, output_dir):
 @click.option(
     "--project-id",
     envvar="GOOGLE_CLOUD_PROJECT",
-    help="Google Cloud project ID (or set GOOGLE_CLOUD_PROJECT)",
+    help="Google Cloud project ID",
+    type=str
 )
 @click.option(
     "--data-dir",
@@ -135,7 +137,7 @@ def prepare_points(data_dir, spacing, output_dir):
 @click.option(
     "--radius",
     default=30,
-    help="Search radius in meters for metadata endpoint",
+    help="Search radius in meters for each point",
     type=int
 )
 @click.option(
@@ -182,26 +184,37 @@ def crawl(project_id, data_dir, radius, qps, batch_size, resume):
                 console.print("❌ Sample points not found. Run 'prepare-points' first.")
                 raise click.Abort()
             
-            # Load and insert sample points
+            # Load and insert sample points with progress bar
+            console.print("📊 Loading sample points...")
             df = pd.read_parquet(sample_points_path)
             from .models import SamplePoint
             
-            sample_points = []
-            for _, row in df.iterrows():
-                sample_points.append(SamplePoint(
-                    id=row['id'],
-                    lat=row['lat'],
-                    lon=row['lon'],
-                    road_id=row.get('road_id'),
-                    road_type=row.get('road_type')
-                ))
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console
+            ) as progress:
+                task = progress.add_task("Processing sample points...", total=len(df))
+                
+                sample_points = []
+                for _, row in df.iterrows():
+                    sample_points.append(SamplePoint(
+                        id=row['id'],
+                        lat=row['lat'],
+                        lon=row['lon'],
+                        road_id=row.get('road_id'),
+                        road_type=row.get('road_type')
+                    ))
+                    progress.advance(task)
             
             await client.insert_sample_points(sample_points)
             console.print(f"✓ Loaded {len(sample_points)} sample points")
         else:
             console.print("🔄 Resuming from previous state...")
         
-        # Process all points
+        # Process all points with enhanced progress tracking
         stats = await client.process_all_points(radius_m=radius, batch_size=batch_size)
         
         # Print statistics

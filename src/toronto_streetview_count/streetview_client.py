@@ -207,11 +207,22 @@ class StreetViewClient:
     async def insert_sample_points(self, sample_points: List[SamplePoint]):
         """Insert sample points into database."""
         async with aiosqlite.connect(self.db_path) as db:
-            for point in sample_points:
-                await db.execute("""
-                    INSERT OR REPLACE INTO sample_points (id, lat, lon, road_id, road_type, status)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (point.id, point.lat, point.lon, point.road_id, point.road_type, point.status))
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console
+            ) as progress:
+                task = progress.add_task("Inserting sample points...", total=len(sample_points))
+                
+                for point in sample_points:
+                    await db.execute("""
+                        INSERT OR REPLACE INTO sample_points (id, lat, lon, road_id, road_type, status)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (point.id, point.lat, point.lon, point.road_id, point.road_type, point.status))
+                    
+                    progress.advance(task)
             
             await db.commit()
             self.stats.total_sample_points = len(sample_points)
@@ -401,20 +412,57 @@ class StreetViewClient:
             console.print("✓ No pending points to process")
             return self.stats
         
-        console.print(f"Processing {total_points} sample points...")
+        console.print(f"Processing {total_points} sample points in batches of {batch_size}...")
         
-        # Process in batches
+        # Calculate total batches
+        total_batches = (total_points + batch_size - 1) // batch_size
+        
+        # Process in batches with enhanced progress tracking
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TaskProgressColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("|"),
+            TextColumn("Batch {task.fields[current_batch]}/{task.fields[total_batches]}"),
+            TextColumn("|"),
+            TextColumn("ETA: {task.eta}"),
             console=console
         ) as progress:
-            task = progress.add_task("Processing points...", total=total_points)
+            # Main progress task for overall points
+            main_task = progress.add_task(
+                "Processing points...", 
+                total=total_points,
+                current_batch=1,
+                total_batches=total_batches
+            )
             
-            for i in range(0, total_points, batch_size):
-                batch = pending_points[i:i + batch_size]
+            # Batch progress task
+            batch_task = progress.add_task(
+                "Current batch...", 
+                total=batch_size,
+                visible=False
+            )
+            
+            start_time = time.time()
+            
+            for batch_num in range(total_batches):
+                batch_start = batch_num * batch_size
+                batch_end = min(batch_start + batch_size, total_points)
+                batch = pending_points[batch_start:batch_end]
+                current_batch_size = len(batch)
+                
+                # Update main task with current batch info
+                progress.update(
+                    main_task, 
+                    current_batch=batch_num + 1,
+                    total_batches=total_batches
+                )
+                
+                # Show batch progress for current batch
+                progress.update(batch_task, total=current_batch_size, completed=0, visible=True)
+                progress.update(batch_task, description=f"Batch {batch_num + 1}/{total_batches}")
                 
                 # Process batch concurrently
                 tasks = [
@@ -425,16 +473,40 @@ class StreetViewClient:
                 responses = await asyncio.gather(*tasks, return_exceptions=True)
                 
                 # Save responses and update progress
+                successful = 0
+                failed = 0
+                
                 for response in responses:
                     if isinstance(response, Exception):
-                        logger.error(f"Error processing batch: {response}")
-                        continue
+                        logger.error(f"Error processing point: {response}")
+                        failed += 1
+                    else:
+                        await self.save_response(response)
+                        successful += 1
                     
-                    await self.save_response(response)
-                    progress.advance(task)
+                    # Update both progress bars
+                    progress.advance(main_task)
+                    progress.advance(batch_task)
+                
+                # Update stats
+                self.stats.points_queried += successful
+                self.stats.points_failed += failed
+                
+                # Calculate and display ETA
+                if batch_num > 0:
+                    elapsed_time = time.time() - start_time
+                    avg_time_per_batch = elapsed_time / batch_num
+                    remaining_batches = total_batches - batch_num - 1
+                    eta_seconds = remaining_batches * avg_time_per_batch
+                    
+                    # Update ETA in main task
+                    progress.update(main_task, eta=eta_seconds)
                 
                 # Small delay between batches to be nice to the API
                 await asyncio.sleep(0.1)
+            
+            # Hide batch progress when done
+            progress.update(batch_task, visible=False)
         
         # Update final stats
         self.stats.end_time = datetime.utcnow()
@@ -469,6 +541,8 @@ class StreetViewClient:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         
+        console.print("📤 Exporting results...")
+        
         async with aiosqlite.connect(self.db_path) as db:
             # Export panoramas
             cursor = await db.execute("""
@@ -478,29 +552,43 @@ class StreetViewClient:
             """)
             panoramas_data = await cursor.fetchall()
             
-            panoramas_df = pd.DataFrame(panoramas_data, columns=[
-                'pano_id', 'lat', 'lon', 'date', 'copyright', 'first_seen', 'sample_count'
-            ])
-            
-            panoramas_path = output_path / "toronto_pano_ids.parquet"
-            panoramas_df.to_parquet(panoramas_path, index=False)
-            
-            # Export sample points with results
-            cursor = await db.execute("""
-                SELECT sp.*, r.status as api_status, r.pano_id, r.error_message
-                FROM sample_points sp
-                LEFT JOIN responses r ON sp.id = r.sample_id
-                ORDER BY sp.id
-            """)
-            sample_data = await cursor.fetchall()
-            
-            sample_df = pd.DataFrame(sample_data, columns=[
-                'id', 'lat', 'lon', 'road_id', 'road_type', 'status', 'created_at',
-                'api_status', 'pano_id', 'error_message'
-            ])
-            
-            sample_path = output_path / "sample_points_with_results.parquet"
-            sample_df.to_parquet(sample_path, index=False)
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console
+            ) as progress:
+                # Export panoramas
+                task = progress.add_task("Exporting panoramas...", total=len(panoramas_data))
+                
+                panoramas_df = pd.DataFrame(panoramas_data, columns=[
+                    'pano_id', 'lat', 'lon', 'date', 'copyright', 'first_seen', 'sample_count'
+                ])
+                
+                panoramas_path = output_path / "toronto_pano_ids.parquet"
+                panoramas_df.to_parquet(panoramas_path, index=False)
+                progress.advance(task)
+                
+                # Export sample points with results
+                cursor = await db.execute("""
+                    SELECT sp.*, r.status as api_status, r.pano_id, r.error_message
+                    FROM sample_points sp
+                    LEFT JOIN responses r ON sp.id = r.sample_id
+                    ORDER BY sp.id
+                """)
+                sample_data = await cursor.fetchall()
+                
+                task = progress.add_task("Exporting sample points...", total=len(sample_data))
+                
+                sample_df = pd.DataFrame(sample_data, columns=[
+                    'id', 'lat', 'lon', 'road_id', 'road_type', 'status', 'created_at',
+                    'api_status', 'pano_id', 'error_message'
+                ])
+                
+                sample_path = output_path / "sample_points_with_results.parquet"
+                sample_df.to_parquet(sample_path, index=False)
+                progress.advance(task)
         
         console.print(f"✓ Exported results to {output_path}")
         return str(output_path)
