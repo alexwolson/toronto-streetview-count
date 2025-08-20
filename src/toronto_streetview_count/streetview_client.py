@@ -425,7 +425,7 @@ class StreetViewClient:
             TaskProgressColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TextColumn("|"),
-            TextColumn("Batch {task.fields[current_batch]}/{task.fields[total_batches]}"),
+            TextColumn("Batch {current_batch}/{total_batches}"),
             TextColumn("|"),
             TimeRemainingColumn(),
             console=console
@@ -433,9 +433,7 @@ class StreetViewClient:
             # Main progress task for overall points
             main_task = progress.add_task(
                 "Processing points...", 
-                total=total_points,
-                current_batch=1,
-                total_batches=total_batches
+                total=total_points
             )
             
             # Batch progress task
@@ -453,11 +451,10 @@ class StreetViewClient:
                 batch = pending_points[batch_start:batch_end]
                 current_batch_size = len(batch)
                 
-                # Update main task with current batch info
+                # Update the batch display text
                 progress.update(
                     main_task, 
-                    current_batch=batch_num + 1,
-                    total_batches=total_batches
+                    description=f"Processing points... (Batch {batch_num + 1}/{total_batches})"
                 )
                 
                 # Show batch progress for current batch
