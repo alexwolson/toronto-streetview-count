@@ -9,7 +9,7 @@ from typing import AsyncIterator, Dict, List, Optional
 import aiosqlite
 import httpx
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
 from rich.table import Table
 
 from .models import Panorama, ProcessingStats, SamplePoint, StreetViewResponse
@@ -427,7 +427,7 @@ class StreetViewClient:
             TextColumn("|"),
             TextColumn("Batch {task.fields[current_batch]}/{task.fields[total_batches]}"),
             TextColumn("|"),
-            TextColumn("ETA: {task.eta}"),
+            TimeRemainingColumn(),
             console=console
         ) as progress:
             # Main progress task for overall points
@@ -491,16 +491,6 @@ class StreetViewClient:
                 # Update stats
                 self.stats.points_queried += successful
                 self.stats.points_failed += failed
-                
-                # Calculate and display ETA
-                if batch_num > 0:
-                    elapsed_time = time.time() - start_time
-                    avg_time_per_batch = elapsed_time / batch_num
-                    remaining_batches = total_batches - batch_num - 1
-                    eta_seconds = remaining_batches * avg_time_per_batch
-                    
-                    # Update ETA in main task
-                    progress.update(main_task, eta=eta_seconds)
                 
                 # Small delay between batches to be nice to the API
                 await asyncio.sleep(0.1)
