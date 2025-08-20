@@ -425,8 +425,6 @@ class StreetViewClient:
             TaskProgressColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TextColumn("|"),
-            TextColumn("Batch {current_batch}/{total_batches}"),
-            TextColumn("|"),
             TimeRemainingColumn(),
             console=console
         ) as progress:
