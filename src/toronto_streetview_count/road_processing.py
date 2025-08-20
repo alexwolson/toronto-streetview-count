@@ -130,35 +130,48 @@ class RoadProcessor:
         """Densify road centerlines into sample points."""
         console.print(f"Generating sample points with {spacing_m}m spacing...")
         
+        from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+
         sample_points = []
         point_id = 0
-        
-        for idx, road in roads.iterrows():
-            geometry = road.geometry
-            
-            if geometry.geom_type == 'LineString':
-                # Densify the line
-                coords = list(geometry.coords)
-                densified_coords = self._densify_line(coords, spacing_m)
-                
-                for coord in densified_coords:
-                    # Convert back to WGS84 for API calls
-                    point = Point(coord)
-                    point_gdf = gpd.GeoDataFrame([{'geometry': point}], crs='EPSG:3161')
-                    point_wgs84 = point_gdf.to_crs('EPSG:4326')
-                    
-                    sample_points.append(SamplePoint(
-                        id=point_id,
-                        lat=point_wgs84.geometry.iloc[0].y,
-                        lon=point_wgs84.geometry.iloc[0].x,
-                        road_id=str(road.get('centreline_id', f'tcl_{idx}')),
-                        road_type=road.get('feature_code', 'unknown')
-                    ))
-                    point_id += 1
-        
+
+        total_roads = len(roads)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            TimeRemainingColumn(),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Densifying roads...", total=total_roads)
+            for idx, road in roads.iterrows():
+                geometry = road.geometry
+
+                if geometry.geom_type == 'LineString':
+                    # Densify the line
+                    coords = list(geometry.coords)
+                    densified_coords = self._densify_line(coords, spacing_m)
+
+                    for coord in densified_coords:
+                        # Convert back to WGS84 for API calls
+                        point = Point(coord)
+                        point_gdf = gpd.GeoDataFrame([{'geometry': point}], crs='EPSG:3161')
+                        point_wgs84 = point_gdf.to_crs('EPSG:4326')
+
+                        sample_points.append(SamplePoint(
+                            id=point_id,
+                            lat=point_wgs84.geometry.iloc[0].y,
+                            lon=point_wgs84.geometry.iloc[0].x,
+                            road_id=str(road.get('centreline_id', f'tcl_{idx}')),
+                            road_type=road.get('feature_code', 'unknown')
+                        ))
+                        point_id += 1
+                progress.advance(task)
+
         console.print(f"✓ Generated {len(sample_points)} sample points")
         return sample_points
-    
     def _densify_line(self, coords: List[Tuple[float, float]], spacing_m: float) -> List[Tuple[float, float]]:
         """Densify a line by adding points at regular intervals."""
         if len(coords) < 2:
